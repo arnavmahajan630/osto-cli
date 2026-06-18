@@ -1,5 +1,5 @@
 .agent/
 context.md
 osto.db
-osto-auth-cli
+/osto-auth-cli
 test.db
