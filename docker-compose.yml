@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  migrate:
+    build: .
+    command: ["migrate"]
+    volumes:
+      - osto_data:/data
+    env_file:
+      - .env
+
+  app:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - osto_data:/data
+    env_file:
+      - .env
+    stdin_open: true
+    tty: true
+
+volumes:
+  osto_data:

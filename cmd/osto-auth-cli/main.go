@@ -44,6 +44,11 @@ func main() {
 	}
 	slog.Info("database initialized and migrations applied successfully")
 
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		slog.Info("migrations complete, exiting due to 'migrate' argument")
+		os.Exit(0)
+	}
+
 	slog.Info("Starting osto-auth-cli",
 		"db_path", cfg.DBPath,
 		"session_time", cfg.SessionTime,
