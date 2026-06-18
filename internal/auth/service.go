@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
-
+	"log/slog"
 	"time"
 
 	"osto-auth-cli/internal/config"
@@ -127,12 +127,21 @@ func (s *DefaultAuthService) Login(ctx context.Context, username, password strin
 
 	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
 		_ = s.repo.RecordLoginAttempt(ctx, username, false, "account locked")
-		return nil, &ErrorAccountLocked{Until: *user.LockedUntil}
+		return nil, &AuthFailure{
+			Err:               ErrAccountLocked,
+			AttemptsRemaining: 0,
+			LockedUntil:       user.LockedUntil,
+		}
 	}
 
 	if !secure.VerifyPassword(user.PasswordHash, password) {
 		newFailed := user.FailedAttempts + 1
 		var lockedUntil *time.Time
+		attemptsRemaining := s.cfg.LockoutThreshold - newFailed
+		if attemptsRemaining < 0 {
+			attemptsRemaining = 0
+		}
+
 		if newFailed >= s.cfg.LockoutThreshold {
 			lu := time.Now().Add(s.cfg.LockoutDuration)
 			lockedUntil = &lu
@@ -141,9 +150,16 @@ func (s *DefaultAuthService) Login(ctx context.Context, username, password strin
 		_ = s.repo.RecordLoginAttempt(ctx, username, false, "invalid password")
 
 		if lockedUntil != nil {
-			return nil, &ErrorAccountLocked{Until: *lockedUntil}
+			return nil, &AuthFailure{
+				Err:               ErrAccountLocked,
+				AttemptsRemaining: 0,
+				LockedUntil:       lockedUntil,
+			}
 		}
-		return nil, ErrInvalidCredentials
+		return nil, &AuthFailure{
+			Err:               ErrInvalidCredentials,
+			AttemptsRemaining: attemptsRemaining,
+		}
 	}
 
 	if user.MFAEnabled {
@@ -188,7 +204,11 @@ func (s *DefaultAuthService) VerifyTOTPAndCreateSession(ctx context.Context, use
 
 	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
 		_ = s.repo.RecordLoginAttempt(ctx, user.Username, false, "account locked during TOTP")
-		return "", &ErrorAccountLocked{Until: *user.LockedUntil}
+		return "", &AuthFailure{
+			Err:               ErrAccountLocked,
+			AttemptsRemaining: 0,
+			LockedUntil:       user.LockedUntil,
+		}
 	}
 
 	if user.MFASecretEnc == nil {
@@ -198,12 +218,19 @@ func (s *DefaultAuthService) VerifyTOTPAndCreateSession(ctx context.Context, use
 
 	plaintext, err := secure.Decrypt(*user.MFASecretEnc, s.appEncryptionKey)
 	if err != nil {
-		return "", err
+		// Log the underlying crypto error rather than returning it to the user.
+		slog.Error("TOTP decryption failed", "user_id", user.ID, "error", err)
+		return "", totp.ErrInvalidTOTP
 	}
 
 	if !s.totpService.Validate(string(plaintext), code) {
 		newFailed := user.FailedAttempts + 1
 		var lockedUntil *time.Time
+		attemptsRemaining := s.cfg.LockoutThreshold - newFailed
+		if attemptsRemaining < 0 {
+			attemptsRemaining = 0
+		}
+
 		if newFailed >= s.cfg.LockoutThreshold {
 			lu := time.Now().Add(s.cfg.LockoutDuration)
 			lockedUntil = &lu
@@ -212,9 +239,16 @@ func (s *DefaultAuthService) VerifyTOTPAndCreateSession(ctx context.Context, use
 		_ = s.repo.RecordLoginAttempt(ctx, user.Username, false, "invalid TOTP")
 
 		if lockedUntil != nil {
-			return "", &ErrorAccountLocked{Until: *lockedUntil}
+			return "", &AuthFailure{
+				Err:               ErrAccountLocked,
+				AttemptsRemaining: 0,
+				LockedUntil:       lockedUntil,
+			}
 		}
-		return "", totp.ErrInvalidTOTP
+		return "", &AuthFailure{
+			Err:               totp.ErrInvalidTOTP,
+			AttemptsRemaining: attemptsRemaining,
+		}
 	}
 
 	if err := s.repo.RecordLoginSuccess(ctx, user.ID, time.Now()); err != nil {

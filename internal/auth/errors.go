@@ -12,6 +12,7 @@ var (
 )
 
 // ErrorAccountLocked encapsulates the time until which the account is locked.
+// Retained for backward compatibility.
 type ErrorAccountLocked struct {
 	Until time.Time
 }
@@ -22,4 +23,19 @@ func (e *ErrorAccountLocked) Error() string {
 
 func (e *ErrorAccountLocked) Is(target error) bool {
 	return target == ErrAccountLocked
+}
+
+// AuthFailure represents an authentication error containing lockout metadata.
+type AuthFailure struct {
+	Err               error
+	AttemptsRemaining int
+	LockedUntil       *time.Time
+}
+
+func (e *AuthFailure) Error() string {
+	return e.Err.Error()
+}
+
+func (e *AuthFailure) Unwrap() error {
+	return e.Err
 }

@@ -2,15 +2,12 @@ package commands
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/chzyer/readline"
 	"osto-auth-cli/internal/auth"
 	"osto-auth-cli/internal/state"
 	"osto-auth-cli/internal/style"
-	"osto-auth-cli/internal/totp"
 )
 
 func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Command {
@@ -33,16 +30,7 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 			err = PromptWithRetries(rl, "Password: ", true, func(pass string) error {
 				var loginErr error
 				result, loginErr = authService.Login(context.Background(), username, pass)
-				if loginErr != nil {
-					var lockedErr *auth.ErrorAccountLocked
-					if errors.As(loginErr, &lockedErr) {
-						return loginErr // Propagate to breakout
-					} else if errors.Is(loginErr, auth.ErrInvalidCredentials) {
-						return errors.New("Invalid credentials.")
-					}
-					return fmt.Errorf("Login failed: %v", loginErr)
-				}
-				return nil
+				return loginErr
 			})
 
 			if err != nil {
@@ -58,16 +46,7 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 					code = strings.TrimSpace(code)
 					var totpErr error
 					token, totpErr = authService.VerifyTOTPAndCreateSession(context.Background(), result.User.ID, code)
-					if totpErr != nil {
-						var lockedErr *auth.ErrorAccountLocked
-						if errors.As(totpErr, &lockedErr) {
-							return totpErr
-						} else if errors.Is(totpErr, totp.ErrInvalidTOTP) {
-							return errors.New("Invalid TOTP code.")
-						}
-						return fmt.Errorf("TOTP verification failed: %v", totpErr)
-					}
-					return nil
+					return totpErr
 				})
 				
 				if err != nil || token == "" {
