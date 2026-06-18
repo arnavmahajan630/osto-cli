@@ -2,8 +2,8 @@ package totp
 
 import (
 	"context"
+	"errors"
 
-	"osto-auth-cli/internal/auth"
 	"osto-auth-cli/internal/repository"
 	"osto-auth-cli/internal/secure"
 	"osto-auth-cli/internal/session"
@@ -41,7 +41,7 @@ func (s *EnrollmentService) ConfirmEnrollment(
 	code string,
 ) error {
 	if !s.totpService.Validate(rawSecret, code) {
-		return auth.ErrInvalidTOTP
+		return ErrInvalidTOTP
 	}
 
 	encSecret, err := secure.Encrypt([]byte(rawSecret), s.appKey)
@@ -50,6 +50,38 @@ func (s *EnrollmentService) ConfirmEnrollment(
 	}
 
 	if err := s.userRepo.SetMFA(ctx, userID, true, &encSecret); err != nil {
+		return err
+	}
+
+	if err := s.sessionService.Revoke(ctx, sessionToken); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Disable validates the user's code, removes the MFA secret, and revokes the session.
+func (s *EnrollmentService) Disable(
+	ctx context.Context,
+	userID int64,
+	sessionToken string,
+	encSecret *string,
+	code string,
+) error {
+	if encSecret == nil {
+		return errors.New("MFA is not enabled")
+	}
+
+	plaintext, err := secure.Decrypt(*encSecret, s.appKey)
+	if err != nil {
+		return err
+	}
+
+	if !s.totpService.Validate(string(plaintext), code) {
+		return ErrInvalidTOTP
+	}
+
+	if err := s.userRepo.SetMFA(ctx, userID, false, nil); err != nil {
 		return err
 	}
 

@@ -71,10 +71,10 @@ func main() {
 	sessionRepo := repository.NewSQLiteSessionRepository(dbConn)
 	
 	sessionService := session.NewSessionService(sessionRepo, cfg)
-	authService := auth.NewAuthService(userRepo, sessionService)
+	totpService := totp.NewTOTPService()
+	authService := auth.NewAuthService(userRepo, sessionService, totpService, cfg.AppEncryptionKey)
 	authGuard := session.NewAuthGuard(sessionRepo, userRepo)
 	
-	totpService := totp.NewTOTPService()
 	enrollmentService := totp.NewEnrollmentService(userRepo, sessionService, totpService, cfg.AppEncryptionKey)
 
 	preLogin := repl.NewRegistry()
@@ -86,6 +86,7 @@ func main() {
 	postLogin := repl.NewRegistry()
 	postLogin.Register(commands.NewWhoamiCommand(authGuard))
 	postLogin.Register(commands.NewEnable2FACommand(rl, authGuard, totpService, enrollmentService))
+	postLogin.Register(commands.NewDisable2FACommand(rl, authGuard, enrollmentService))
 	postLogin.Register(commands.NewLogoutCommand(sessionService))
 	postLogin.Register(commands.NewExitCommand())
 	postLogin.Register(commands.NewHelpCommand(postLogin.All))

@@ -12,16 +12,15 @@ import (
 	"osto-auth-cli/internal/totp"
 )
 
-func NewEnable2FACommand(
+func NewDisable2FACommand(
 	rl *readline.Instance,
 	authGuard session.AuthGuard,
-	totpService totp.TOTPService,
 	enrollmentService *totp.EnrollmentService,
 ) *Command {
 	return &Command{
-		Name:  "enable-2fa",
-		Usage: "enable-2fa",
-		Help:  "Set up TOTP two-factor authentication",
+		Name:  "disable-2fa",
+		Usage: "disable-2fa",
+		Help:  "Disable TOTP two-factor authentication",
 		Handler: func(s *state.AppState, args []string) error {
 			ctx := context.Background()
 			authSession, err := authGuard.Require(ctx, s)
@@ -36,48 +35,37 @@ func NewEnable2FACommand(
 				return nil
 			}
 
-			if authSession.User.MFAEnabled {
-				fmt.Println("[ERROR] 2FA is already enabled.")
+			if !authSession.User.MFAEnabled {
+				fmt.Println("[ERROR] 2FA is not enabled.")
 				return nil
 			}
-
-			secret, qr, err := totpService.GenerateSecret(authSession.User.Username)
-			if err != nil {
-				fmt.Printf("[ERROR] Failed to generate 2FA secret: %v\n", err)
-				return nil
-			}
-
-			fmt.Println("\nScan the QR code below with your authenticator app:")
-			fmt.Println(qr)
-			fmt.Println("\nOr enter this code manually:")
-			fmt.Printf("Secret: %s\n\n", secret)
 
 			oldPrompt := rl.Config.Prompt
-			rl.SetPrompt("Enter the current 6-digit code to confirm setup: ")
+			rl.SetPrompt("Enter the current 6-digit code to disable 2FA: ")
 			code, err := rl.Readline()
 			rl.SetPrompt(oldPrompt)
 
 			if err != nil {
 				if err == readline.ErrInterrupt {
-					fmt.Println("\n[ERROR] Setup aborted.")
+					fmt.Println("\n[ERROR] Disablement aborted.")
 				}
 				return err
 			}
 
 			code = strings.TrimSpace(code)
 
-			err = enrollmentService.ConfirmEnrollment(ctx, authSession.User.ID, s.SessionToken, secret, code)
+			err = enrollmentService.Disable(ctx, authSession.User.ID, s.SessionToken, authSession.User.MFASecretEnc, code)
 			if err != nil {
 				if errors.Is(err, totp.ErrInvalidTOTP) {
-					fmt.Println("[ERROR] Invalid code. Setup aborted.")
+					fmt.Println("[ERROR] Invalid code. Disablement aborted.")
 				} else {
-					fmt.Printf("[ERROR] Failed to enable 2FA: %v\n", err)
+					fmt.Printf("[ERROR] Failed to disable 2FA: %v\n", err)
 				}
 				return nil
 			}
 
 			s.Clear()
-			fmt.Println("[OK] 2FA enabled successfully. Please log in again.")
+			fmt.Println("[OK] 2FA disabled successfully. Please log in again.")
 			return nil
 		},
 	}

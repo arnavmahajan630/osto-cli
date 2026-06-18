@@ -9,6 +9,7 @@ import (
 	"github.com/chzyer/readline"
 	"osto-auth-cli/internal/auth"
 	"osto-auth-cli/internal/state"
+	"osto-auth-cli/internal/totp"
 )
 
 func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Command {
@@ -44,6 +45,27 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 					fmt.Printf("[ERROR] Login failed: %v\n", err)
 				}
 				return nil
+			}
+
+			if result.RequiresTOTP {
+				rl.SetPrompt("Enter 6-digit TOTP code: ")
+				code, err := rl.Readline()
+				rl.SetPrompt(oldPrompt)
+				if err != nil {
+					return err
+				}
+				code = strings.TrimSpace(code)
+
+				token, err := authService.VerifyTOTPAndCreateSession(context.Background(), result.User.ID, code)
+				if err != nil {
+					if errors.Is(err, totp.ErrInvalidTOTP) {
+						fmt.Println("[ERROR] Invalid TOTP code.")
+					} else {
+						fmt.Printf("[ERROR] TOTP verification failed: %v\n", err)
+					}
+					return nil
+				}
+				result.SessionToken = token
 			}
 
 			s.SessionToken = result.SessionToken

@@ -10,6 +10,7 @@ import (
 	"osto-auth-cli/internal/repository"
 	"osto-auth-cli/internal/secure"
 	"osto-auth-cli/internal/session"
+	"osto-auth-cli/internal/totp"
 	"osto-auth-cli/internal/validation"
 )
 
@@ -34,21 +35,29 @@ type AuthService interface {
 	Login(ctx context.Context, username, password string) (*LoginResult, error)
 	Logout(ctx context.Context, token string) error
 	VerifySession(ctx context.Context, token string) (*models.User, error)
-	EnableMFA(ctx context.Context, token string) (secret string, err error)
-	VerifyMFA(ctx context.Context, token, code string) error
+	VerifyTOTPAndCreateSession(ctx context.Context, userID int64, code string) (string, error)
 }
 
 // DefaultAuthService provides the concrete implementation of AuthService.
 type DefaultAuthService struct {
-	repo           repository.UserRepository
-	sessionService session.SessionService
+	repo             repository.UserRepository
+	sessionService   session.SessionService
+	totpService      totp.TOTPService
+	appEncryptionKey []byte
 }
 
 // NewAuthService creates a new DefaultAuthService.
-func NewAuthService(repo repository.UserRepository, sessionService session.SessionService) *DefaultAuthService {
+func NewAuthService(
+	repo repository.UserRepository,
+	sessionService session.SessionService,
+	totpService totp.TOTPService,
+	appEncryptionKey []byte,
+) *DefaultAuthService {
 	return &DefaultAuthService{
-		repo:           repo,
-		sessionService: sessionService,
+		repo:             repo,
+		sessionService:   sessionService,
+		totpService:      totpService,
+		appEncryptionKey: appEncryptionKey,
 	}
 }
 
@@ -116,6 +125,14 @@ func (s *DefaultAuthService) Login(ctx context.Context, username, password strin
 		return nil, ErrInvalidCredentials
 	}
 
+	if user.MFAEnabled {
+		return &LoginResult{
+			User:         user,
+			RequiresTOTP: true,
+			SessionToken: "",
+		}, nil
+	}
+
 	if err := s.repo.RecordLoginSuccess(ctx, user.ID, time.Now()); err != nil {
 		return nil, err
 	}
@@ -140,10 +157,33 @@ func (s *DefaultAuthService) VerifySession(ctx context.Context, token string) (*
 	return nil, errors.New("not implemented")
 }
 
-func (s *DefaultAuthService) EnableMFA(ctx context.Context, token string) (secret string, err error) {
-	return "", errors.New("not implemented")
-}
+func (s *DefaultAuthService) VerifyTOTPAndCreateSession(ctx context.Context, userID int64, code string) (string, error) {
+	user, err := s.repo.GetByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
 
-func (s *DefaultAuthService) VerifyMFA(ctx context.Context, token, code string) error {
-	return errors.New("not implemented")
+	if user.MFASecretEnc == nil {
+		return "", totp.ErrInvalidTOTP
+	}
+
+	plaintext, err := secure.Decrypt(*user.MFASecretEnc, s.appEncryptionKey)
+	if err != nil {
+		return "", err
+	}
+
+	if !s.totpService.Validate(string(plaintext), code) {
+		return "", totp.ErrInvalidTOTP
+	}
+
+	if err := s.repo.RecordLoginSuccess(ctx, user.ID, time.Now()); err != nil {
+		return "", err
+	}
+
+	rawToken, err := s.sessionService.Create(ctx, user.ID)
+	if err != nil {
+		return "", err
+	}
+
+	return rawToken, nil
 }
