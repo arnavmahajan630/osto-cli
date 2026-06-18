@@ -14,6 +14,6 @@ type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
 	ExistsByUsername(ctx context.Context, username string) (bool, error)
 	RecordLoginSuccess(ctx context.Context, id int64, at time.Time) error
-	RecordLoginFailure(ctx context.Context, id int64) error
-	SetMFA(ctx context.Context, id int64, enabled bool, secret string) error
+	RecordLoginFailure(ctx context.Context, userID int64, failedAttempts int, lockedUntil *time.Time) error
+	SetMFA(ctx context.Context, id int64, enabled bool, encSecret *string) error
 }

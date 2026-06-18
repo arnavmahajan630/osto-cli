@@ -96,10 +96,11 @@ func (r *SQLiteUserRepository) RecordLoginSuccess(ctx context.Context, id int64,
 	return err
 }
 
-func (r *SQLiteUserRepository) RecordLoginFailure(ctx context.Context, id int64) error {
+func (r *SQLiteUserRepository) RecordLoginFailure(ctx context.Context, userID int64, failedAttempts int, lockedUntil *time.Time) error {
 	return errors.New("not implemented")
 }
 
-func (r *SQLiteUserRepository) SetMFA(ctx context.Context, id int64, enabled bool, secret string) error {
-	return errors.New("not implemented")
+func (r *SQLiteUserRepository) SetMFA(ctx context.Context, userID int64, enabled bool, encSecret *string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = ?, mfa_secret_enc = ? WHERE id = ?`, enabled, encSecret, userID)
+	return err
 }

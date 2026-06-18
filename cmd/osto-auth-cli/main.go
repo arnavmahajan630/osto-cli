@@ -18,6 +18,7 @@ import (
 	"osto-auth-cli/internal/repository"
 	"osto-auth-cli/internal/session"
 	"osto-auth-cli/internal/state"
+	"osto-auth-cli/internal/totp"
 	"osto-auth-cli/migrations"
 )
 
@@ -72,6 +73,9 @@ func main() {
 	sessionService := session.NewSessionService(sessionRepo, cfg)
 	authService := auth.NewAuthService(userRepo, sessionService)
 	authGuard := session.NewAuthGuard(sessionRepo, userRepo)
+	
+	totpService := totp.NewTOTPService()
+	enrollmentService := totp.NewEnrollmentService(userRepo, sessionService, totpService, cfg.AppEncryptionKey)
 
 	preLogin := repl.NewRegistry()
 	preLogin.Register(commands.NewRegisterCommand(rl, authService))
@@ -81,6 +85,7 @@ func main() {
 
 	postLogin := repl.NewRegistry()
 	postLogin.Register(commands.NewWhoamiCommand(authGuard))
+	postLogin.Register(commands.NewEnable2FACommand(rl, authGuard, totpService, enrollmentService))
 	postLogin.Register(commands.NewLogoutCommand(sessionService))
 	postLogin.Register(commands.NewExitCommand())
 	postLogin.Register(commands.NewHelpCommand(postLogin.All))
