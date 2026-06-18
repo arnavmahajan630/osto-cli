@@ -9,6 +9,7 @@ import (
 	"github.com/chzyer/readline"
 	"osto-auth-cli/internal/session"
 	"osto-auth-cli/internal/state"
+	"osto-auth-cli/internal/style"
 	"osto-auth-cli/internal/totp"
 )
 
@@ -27,57 +28,51 @@ func NewEnable2FACommand(
 			authSession, err := authGuard.Require(ctx, s)
 			if err != nil {
 				if errors.Is(err, session.ErrNotAuthenticated) {
-					fmt.Println("[ERROR] Not authenticated.")
+					style.Error("Not authenticated.")
 				} else if errors.Is(err, session.ErrSessionExpired) {
-					fmt.Println("[ERROR] Session expired.")
+					style.Error("Session expired.")
 				} else {
-					fmt.Printf("[ERROR] Failed to verify session: %v\n", err)
+					style.Error("Failed to verify session: %v", err)
 				}
 				return nil
 			}
 
 			if authSession.User.MFAEnabled {
-				fmt.Println("[ERROR] 2FA is already enabled.")
+				style.Error("2FA is already enabled.")
 				return nil
 			}
 
 			secret, qr, err := totpService.GenerateSecret(authSession.User.Username)
 			if err != nil {
-				fmt.Printf("[ERROR] Failed to generate 2FA secret: %v\n", err)
+				style.Error("Failed to generate 2FA secret: %v", err)
 				return nil
 			}
 
-			fmt.Println("\nScan the QR code below with your authenticator app:")
-			fmt.Println(qr)
-			fmt.Println("\nOr enter this code manually:")
-			fmt.Printf("Secret: %s\n\n", secret)
+			style.Info("Scan the QR code below with your authenticator app:\n\n%s\n", qr)
+			style.Info("Or enter this code manually: %s\n", secret)
 
-			oldPrompt := rl.Config.Prompt
-			rl.SetPrompt("Enter the current 6-digit code to confirm setup: ")
-			code, err := rl.Readline()
-			rl.SetPrompt(oldPrompt)
-
-			if err != nil {
-				if err == readline.ErrInterrupt {
-					fmt.Println("\n[ERROR] Setup aborted.")
+			var success bool
+			err = PromptWithRetries(rl, "Enter the current 6-digit code to confirm setup: ", false, func(code string) error {
+				code = strings.TrimSpace(code)
+				confirmErr := enrollmentService.ConfirmEnrollment(ctx, authSession.User.ID, s.SessionToken, secret, code)
+				if confirmErr != nil {
+					if errors.Is(confirmErr, totp.ErrInvalidTOTP) {
+						return errors.New("Invalid code")
+					}
+					return fmt.Errorf("Failed to enable 2FA: %v", confirmErr)
 				}
-				return err
-			}
+				success = true
+				return nil
+			})
 
-			code = strings.TrimSpace(code)
-
-			err = enrollmentService.ConfirmEnrollment(ctx, authSession.User.ID, s.SessionToken, secret, code)
-			if err != nil {
-				if errors.Is(err, totp.ErrInvalidTOTP) {
-					fmt.Println("[ERROR] Invalid code. Setup aborted.")
-				} else {
-					fmt.Printf("[ERROR] Failed to enable 2FA: %v\n", err)
-				}
+			if err != nil || !success {
+				style.Warn("Setup aborted.")
 				return nil
 			}
 
 			s.Clear()
-			fmt.Println("[OK] 2FA enabled successfully. Please log in again.")
+			style.Separator()
+			style.OK("2FA enabled successfully. Please log in again.")
 			return nil
 		},
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/chzyer/readline"
 	"osto-auth-cli/internal/auth"
 	"osto-auth-cli/internal/state"
+	"osto-auth-cli/internal/style"
 	"osto-auth-cli/internal/totp"
 )
 
@@ -28,48 +29,49 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 			}
 			username = strings.TrimSpace(username)
 
-			passBytes, err := rl.ReadPassword("Password: ")
-			if err != nil {
-				rl.SetPrompt(oldPrompt)
-				return err
-			}
-			password := string(passBytes)
-
-			rl.SetPrompt(oldPrompt)
-
-			result, err := authService.Login(context.Background(), username, password)
-			if err != nil {
-				var lockedErr *auth.ErrorAccountLocked
-				if errors.As(err, &lockedErr) {
-					fmt.Printf("[ERROR] Account locked until %s\n", lockedErr.Until.Format("15:04"))
-				} else if errors.Is(err, auth.ErrInvalidCredentials) {
-					fmt.Println("[ERROR] Invalid credentials.")
-				} else {
-					fmt.Printf("[ERROR] Login failed: %v\n", err)
+			var result *auth.LoginResult
+			err = PromptWithRetries(rl, "Password: ", true, func(pass string) error {
+				var loginErr error
+				result, loginErr = authService.Login(context.Background(), username, pass)
+				if loginErr != nil {
+					var lockedErr *auth.ErrorAccountLocked
+					if errors.As(loginErr, &lockedErr) {
+						return loginErr // Propagate to breakout
+					} else if errors.Is(loginErr, auth.ErrInvalidCredentials) {
+						return errors.New("Invalid credentials.")
+					}
+					return fmt.Errorf("Login failed: %v", loginErr)
 				}
 				return nil
+			})
+
+			if err != nil {
+				return nil // Aborted or locked
+			}
+			if result == nil {
+				return nil // Exhausted retries
 			}
 
 			if result.RequiresTOTP {
-				rl.SetPrompt("Enter 6-digit TOTP code: ")
-				code, err := rl.Readline()
-				rl.SetPrompt(oldPrompt)
-				if err != nil {
-					return err
-				}
-				code = strings.TrimSpace(code)
-
-				token, err := authService.VerifyTOTPAndCreateSession(context.Background(), result.User.ID, code)
-				if err != nil {
-					var lockedErr *auth.ErrorAccountLocked
-					if errors.As(err, &lockedErr) {
-						fmt.Printf("[ERROR] Account locked until %s\n", lockedErr.Until.Format("15:04"))
-					} else if errors.Is(err, totp.ErrInvalidTOTP) {
-						fmt.Println("[ERROR] Invalid TOTP code.")
-					} else {
-						fmt.Printf("[ERROR] TOTP verification failed: %v\n", err)
+				var token string
+				err = PromptWithRetries(rl, "Enter 6-digit TOTP code: ", false, func(code string) error {
+					code = strings.TrimSpace(code)
+					var totpErr error
+					token, totpErr = authService.VerifyTOTPAndCreateSession(context.Background(), result.User.ID, code)
+					if totpErr != nil {
+						var lockedErr *auth.ErrorAccountLocked
+						if errors.As(totpErr, &lockedErr) {
+							return totpErr
+						} else if errors.Is(totpErr, totp.ErrInvalidTOTP) {
+							return errors.New("Invalid TOTP code.")
+						}
+						return fmt.Errorf("TOTP verification failed: %v", totpErr)
 					}
 					return nil
+				})
+				
+				if err != nil || token == "" {
+					return nil // Aborted, locked, or exhausted
 				}
 				result.SessionToken = token
 			}
@@ -77,7 +79,8 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 			s.SessionToken = result.SessionToken
 			s.CurrentUser = result.User
 
-			fmt.Printf("[OK] Logged in as %s.\n", s.CurrentUser.Username)
+			style.OK("Logged in as %s.", s.CurrentUser.Username)
+			style.Separator()
 			return nil
 		},
 	}

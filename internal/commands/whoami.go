@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"osto-auth-cli/internal/session"
 	"osto-auth-cli/internal/state"
+	"osto-auth-cli/internal/style"
 )
 
 func NewWhoamiCommand(guard session.AuthGuard) *Command {
@@ -17,11 +18,11 @@ func NewWhoamiCommand(guard session.AuthGuard) *Command {
 			authSession, err := guard.Require(context.Background(), s)
 			if err != nil {
 				if errors.Is(err, session.ErrNotAuthenticated) {
-					fmt.Println("[ERROR] Not authenticated.")
+					style.Error("Not authenticated.")
 				} else if errors.Is(err, session.ErrSessionExpired) {
-					fmt.Println("[ERROR] Session expired.")
+					style.Error("Session expired.")
 				} else {
-					fmt.Printf("[ERROR] Failed to verify session: %v\n", err)
+					style.Error("Failed to verify session: %v", err)
 				}
 				return nil
 			}
@@ -34,11 +35,15 @@ func NewWhoamiCommand(guard session.AuthGuard) *Command {
 				lastLogin = "Never"
 			}
 
-			fmt.Printf("Username:       %s\n", u.Username)
-			fmt.Printf("Created At:     %s\n", u.CreatedAt.Format("2006-01-02 15:04:05"))
-			fmt.Printf("MFA Enabled:    %t\n", u.MFAEnabled)
-			fmt.Printf("Last Login:     %s\n", lastLogin)
-			fmt.Printf("Session Expiry: %s\n", authSession.ExpiresAt.Format("2006-01-02 15:04:05"))
+			fmt.Println("┌──────────────────────────────────────────────────┐")
+			fmt.Printf("│ %-48s │\n", "User Profile")
+			fmt.Println("├───────────────┬──────────────────────────────────┤")
+			fmt.Printf("│ %-13s │ %-32s │\n", "Username", u.Username)
+			fmt.Printf("│ %-13s │ %-32s │\n", "Created At", u.CreatedAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("│ %-13s │ %-32t │\n", "MFA Enabled", u.MFAEnabled)
+			fmt.Printf("│ %-13s │ %-32s │\n", "Last Login", lastLogin)
+			fmt.Printf("│ %-13s │ %-32s │\n", "Session Exp", authSession.ExpiresAt.Format("2006-01-02 15:04:05"))
+			fmt.Println("└───────────────┴──────────────────────────────────┘")
 			return nil
 		},
 	}

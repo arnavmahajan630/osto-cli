@@ -9,6 +9,7 @@ import (
 	"github.com/chzyer/readline"
 	"osto-auth-cli/internal/commands"
 	"osto-auth-cli/internal/state"
+	"osto-auth-cli/internal/style"
 )
 
 type REPL struct {
@@ -43,20 +44,40 @@ func (r *REPL) updateAutoComplete() {
 	r.rl.Config.AutoComplete = completer
 }
 
-func (r *REPL) Run() error {
+func (r *REPL) Run(sessionRevoker func()) error {
+	consecutiveInterrupts := 0
+
 	for {
-		// Dynamically update autocomplete based on current state before each read
 		r.updateAutoComplete()
+
+		if r.state.IsAuthenticated() {
+			r.rl.SetPrompt(fmt.Sprintf("osto(%s)> ", r.state.CurrentUser.Username))
+		} else {
+			r.rl.SetPrompt("osto> ")
+		}
 
 		line, err := r.rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
-				continue
+				consecutiveInterrupts++
+				if consecutiveInterrupts == 1 {
+					style.Info("Type 'exit' or press Ctrl+C again to quit.")
+					continue
+				} else {
+					if r.state.IsAuthenticated() && sessionRevoker != nil {
+						sessionRevoker()
+					}
+					return nil
+				}
 			} else if err == io.EOF {
+				if r.state.IsAuthenticated() && sessionRevoker != nil {
+					sessionRevoker()
+				}
 				break
 			}
 			return err
 		}
+		consecutiveInterrupts = 0
 
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -67,21 +88,29 @@ func (r *REPL) Run() error {
 		cmdName := parts[0]
 		args := parts[1:]
 
+		// Handle Aliases
+		if cmdName == "?" {
+			cmdName = "help"
+		} else if cmdName == "q" || cmdName == "quit" {
+			cmdName = "exit"
+		}
+
 		activeRegistry := r.getActiveRegistry()
 		cmd, exists := activeRegistry.Get(cmdName)
 		if !exists {
-			fmt.Printf("[ERROR] Unknown command: %s\n", cmdName)
+			style.Error("Unknown command: %s", cmdName)
 			continue
 		}
 
 		err = cmd.Handler(r.state, args)
 		if err != nil {
 			if errors.Is(err, commands.ErrExit) {
+				if r.state.IsAuthenticated() && sessionRevoker != nil {
+					sessionRevoker()
+				}
 				break
 			}
-			// Command handlers should print their own user-facing errors (per CONTEXT),
-			// but we can print a fallback here if they bubble up an unexpected error.
-			fmt.Printf("[ERROR] %v\n", err)
+			style.Error("%v", err)
 		}
 	}
 

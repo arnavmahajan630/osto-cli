@@ -117,8 +117,22 @@ func main() {
 	defer wg.Wait()
 	defer cancel()
 
+	fmt.Println("┌──────────────────────────────────────────────────┐")
+	fmt.Println("│                                                  │")
+	fmt.Println("│                   OSTO AUTH CLI                  │")
+	fmt.Println("│         Secure REPL-based Identity Manager       │")
+	fmt.Println("│                                                  │")
+	fmt.Println("└──────────────────────────────────────────────────┘")
+
 	r := repl.NewREPL(appState, preLogin, postLogin, rl)
-	if err := r.Run(); err != nil {
+	
+	revoker := func() {
+		if appState.IsAuthenticated() {
+			_ = sessionService.Revoke(context.Background(), appState.SessionToken)
+		}
+	}
+	
+	if err := r.Run(revoker); err != nil {
 		fmt.Fprintf(os.Stderr, "REPL exited with error: %v\n", err)
 		os.Exit(1)
 	}

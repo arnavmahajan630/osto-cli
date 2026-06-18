@@ -3,12 +3,12 @@ package commands
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/chzyer/readline"
 	"osto-auth-cli/internal/auth"
 	"osto-auth-cli/internal/state"
+	"osto-auth-cli/internal/style"
 	"osto-auth-cli/internal/validation"
 )
 
@@ -71,7 +71,7 @@ func NewRegisterCommand(rl *readline.Instance, authService auth.AuthService) *Co
 			rl.SetPrompt(oldPrompt)
 
 			if password != confirm {
-				fmt.Println("[ERROR] Passwords do not match.")
+				style.Error("Passwords do not match.")
 				return nil
 			}
 
@@ -86,16 +86,16 @@ func NewRegisterCommand(rl *readline.Instance, authService auth.AuthService) *Co
 			if err != nil {
 				var valErr *validation.ValidationError
 				if errors.Is(err, auth.ErrUserExists) {
-					fmt.Println("[ERROR] Username already exists.")
+					style.Error("Username already exists.")
 				} else if errors.As(err, &valErr) {
-					fmt.Printf("[ERROR] %s\n", valErr.Message)
+					style.Error("%s", valErr.Message)
 				} else {
-					fmt.Println("[ERROR] Internal server error. Please try again.")
+					style.Error("Internal server error. Please try again.")
 				}
 				return nil
 			}
 
-			fmt.Println("[OK] Registered. You can now log in.")
+			style.OK("Registered. You can now log in.")
 			return nil
 		},
 	}
