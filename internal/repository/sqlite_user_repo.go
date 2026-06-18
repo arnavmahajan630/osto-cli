@@ -41,7 +41,23 @@ func (r *SQLiteUserRepository) Create(ctx context.Context, user *models.User) er
 }
 
 func (r *SQLiteUserRepository) GetByID(ctx context.Context, id int64) (*models.User, error) {
-	return nil, errors.New("not implemented")
+	user := &models.User{}
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, username, password_hash, name, birth_date, created_at, last_login_at, mfa_enabled, mfa_secret_enc, failed_attempts, locked_until
+		FROM users
+		WHERE id = ?
+	`, id).Scan(
+		&user.ID, &user.Username, &user.PasswordHash, &user.Name, &user.BirthDate,
+		&user.CreatedAt, &user.LastLoginAt, &user.MFAEnabled, &user.MFASecretEnc,
+		&user.FailedAttempts, &user.LockedUntil,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 func (r *SQLiteUserRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
