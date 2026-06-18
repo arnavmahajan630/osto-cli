@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"osto-auth-cli/internal/models"
 )
@@ -70,8 +71,13 @@ func (r *SQLiteUserRepository) ExistsByUsername(ctx context.Context, username st
 	return exists, err
 }
 
-func (r *SQLiteUserRepository) RecordLoginSuccess(ctx context.Context, id int64) error {
-	return errors.New("not implemented")
+func (r *SQLiteUserRepository) RecordLoginSuccess(ctx context.Context, id int64, at time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE users 
+		SET last_login_at = ?, failed_attempts = 0 
+		WHERE id = ?
+	`, at, id)
+	return err
 }
 
 func (r *SQLiteUserRepository) RecordLoginFailure(ctx context.Context, id int64) error {

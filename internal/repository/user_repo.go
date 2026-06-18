@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"osto-auth-cli/internal/models"
 )
@@ -12,7 +13,7 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.User, error)
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
 	ExistsByUsername(ctx context.Context, username string) (bool, error)
-	RecordLoginSuccess(ctx context.Context, id int64) error
+	RecordLoginSuccess(ctx context.Context, id int64, at time.Time) error
 	RecordLoginFailure(ctx context.Context, id int64) error
 	SetMFA(ctx context.Context, id int64, enabled bool, secret string) error
 }

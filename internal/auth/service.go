@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 
+	"time"
+
 	"osto-auth-cli/internal/models"
 	"osto-auth-cli/internal/repository"
 	"osto-auth-cli/internal/secure"
+	"osto-auth-cli/internal/session"
 	"osto-auth-cli/internal/validation"
 )
 
@@ -20,8 +23,9 @@ type RegisterInput struct {
 
 // LoginResult contains the session token and user details upon successful login.
 type LoginResult struct {
-	Token string
-	User  *models.User
+	User         *models.User
+	RequiresTOTP bool
+	SessionToken string
 }
 
 // AuthService defines the contract for authentication operations.
@@ -36,12 +40,16 @@ type AuthService interface {
 
 // DefaultAuthService provides the concrete implementation of AuthService.
 type DefaultAuthService struct {
-	repo repository.UserRepository
+	repo           repository.UserRepository
+	sessionService session.SessionService
 }
 
 // NewAuthService creates a new DefaultAuthService.
-func NewAuthService(repo repository.UserRepository) *DefaultAuthService {
-	return &DefaultAuthService{repo: repo}
+func NewAuthService(repo repository.UserRepository, sessionService session.SessionService) *DefaultAuthService {
+	return &DefaultAuthService{
+		repo:           repo,
+		sessionService: sessionService,
+	}
 }
 
 // Register validates inputs, hashes the password, and creates a new user.
@@ -93,10 +101,35 @@ func (s *DefaultAuthService) Register(ctx context.Context, input RegisterInput) 
 	return nil
 }
 
-// The following methods are stubbed for later phases.
-
+// Login verifies credentials and creates a session.
 func (s *DefaultAuthService) Login(ctx context.Context, username, password string) (*LoginResult, error) {
-	return nil, errors.New("not implemented")
+	user, err := s.repo.GetByUsername(ctx, username)
+	if err != nil {
+		// Do not distinguish between non-existent user and bad password
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
+	}
+
+	if !secure.VerifyPassword(user.PasswordHash, password) {
+		return nil, ErrInvalidCredentials
+	}
+
+	if err := s.repo.RecordLoginSuccess(ctx, user.ID, time.Now()); err != nil {
+		return nil, err
+	}
+
+	rawToken, err := s.sessionService.Create(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LoginResult{
+		User:         user,
+		RequiresTOTP: false,
+		SessionToken: rawToken,
+	}, nil
 }
 
 func (s *DefaultAuthService) Logout(ctx context.Context, token string) error {

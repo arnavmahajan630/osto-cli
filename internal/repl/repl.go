@@ -12,29 +12,42 @@ import (
 )
 
 type REPL struct {
-	state    *state.AppState
-	registry *Registry
-	rl       *readline.Instance
+	state     *state.AppState
+	preLogin  *Registry
+	postLogin *Registry
+	rl        *readline.Instance
 }
 
-func NewREPL(s *state.AppState, r *Registry, rl *readline.Instance) *REPL {
+func NewREPL(s *state.AppState, preLogin *Registry, postLogin *Registry, rl *readline.Instance) *REPL {
 	return &REPL{
-		state:    s,
-		registry: r,
-		rl:       rl,
+		state:     s,
+		preLogin:  preLogin,
+		postLogin: postLogin,
+		rl:        rl,
 	}
+}
+
+func (r *REPL) getActiveRegistry() *Registry {
+	if r.state.IsAuthenticated() {
+		return r.postLogin
+	}
+	return r.preLogin
+}
+
+func (r *REPL) updateAutoComplete() {
+	var completerItems []readline.PrefixCompleterInterface
+	for _, cmd := range r.getActiveRegistry().All() {
+		completerItems = append(completerItems, readline.PcItem(cmd.Name))
+	}
+	completer := readline.NewPrefixCompleter(completerItems...)
+	r.rl.Config.AutoComplete = completer
 }
 
 func (r *REPL) Run() error {
-	var completerItems []readline.PrefixCompleterInterface
-	for _, cmd := range r.registry.All() {
-		completerItems = append(completerItems, readline.PcItem(cmd.Name))
-	}
-
-	completer := readline.NewPrefixCompleter(completerItems...)
-	r.rl.Config.AutoComplete = completer
-
 	for {
+		// Dynamically update autocomplete based on current state before each read
+		r.updateAutoComplete()
+
 		line, err := r.rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
@@ -54,7 +67,8 @@ func (r *REPL) Run() error {
 		cmdName := parts[0]
 		args := parts[1:]
 
-		cmd, exists := r.registry.Get(cmdName)
+		activeRegistry := r.getActiveRegistry()
+		cmd, exists := activeRegistry.Get(cmdName)
 		if !exists {
 			fmt.Printf("[ERROR] Unknown command: %s\n", cmdName)
 			continue
