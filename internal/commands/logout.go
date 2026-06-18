@@ -24,7 +24,6 @@ func NewLogoutCommand(sessionService session.SessionService) *Command {
 			}
 
 			s.Clear()
-			style.Separator()
 			style.OK("Logged out.")
 			return nil
 		},

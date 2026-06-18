@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -60,6 +61,9 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 
 			style.OK("Logged in as %s.", s.CurrentUser.Username)
 			style.Separator()
+			fmt.Println()
+			fmt.Println("Type 'help' to know more about commands.")
+			fmt.Println()
 			return nil
 		},
 	}

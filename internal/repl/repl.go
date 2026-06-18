@@ -89,9 +89,10 @@ func (r *REPL) Run(sessionRevoker func()) error {
 		args := parts[1:]
 
 		// Handle Aliases
-		if cmdName == "?" {
+		switch cmdName {
+		case "?":
 			cmdName = "help"
-		} else if cmdName == "q" || cmdName == "quit" {
+		case "q", "quit":
 			cmdName = "exit"
 		}
 

@@ -35,15 +35,12 @@ func NewWhoamiCommand(guard session.AuthGuard) *Command {
 				lastLogin = "Never"
 			}
 
-			fmt.Println("┌──────────────────────────────────────────────────┐")
-			fmt.Printf("│ %-48s │\n", "User Profile")
-			fmt.Println("├───────────────┬──────────────────────────────────┤")
-			fmt.Printf("│ %-13s │ %-32s │\n", "Username", u.Username)
-			fmt.Printf("│ %-13s │ %-32s │\n", "Created At", u.CreatedAt.Format("2006-01-02 15:04:05"))
-			fmt.Printf("│ %-13s │ %-32t │\n", "MFA Enabled", u.MFAEnabled)
-			fmt.Printf("│ %-13s │ %-32s │\n", "Last Login", lastLogin)
-			fmt.Printf("│ %-13s │ %-32s │\n", "Session Exp", authSession.ExpiresAt.Format("2006-01-02 15:04:05"))
-			fmt.Println("└───────────────┴──────────────────────────────────┘")
+			fmt.Println("User Profile:")
+			fmt.Printf("  %-15s %s\n", "Username", u.Username)
+			fmt.Printf("  %-15s %s\n", "Created At", u.CreatedAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("  %-15s %t\n", "2FA Enabled", u.MFAEnabled)
+			fmt.Printf("  %-15s %s\n", "Last Login", lastLogin)
+			fmt.Printf("  %-15s %s\n", "Session Exp", authSession.ExpiresAt.Format("2006-01-02 15:04:05"))
 			return nil
 		},
 	}

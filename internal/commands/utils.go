@@ -3,10 +3,11 @@ package commands
 import (
 	"errors"
 
-	"github.com/chzyer/readline"
 	"osto-auth-cli/internal/auth"
 	"osto-auth-cli/internal/style"
 	"osto-auth-cli/internal/totp"
+
+	"github.com/chzyer/readline"
 )
 
 // PromptWithRetries prompts the user up to 3 times.
@@ -73,8 +74,6 @@ func PromptWithRetries(
 
 		remaining := maxAttempts - attempts
 		if remaining > 0 {
-			// Instead of a generic error, we rely on the specific verify function
-			// returning the error string, or we just print the error they returned
 			style.Error("%v", err)
 		} else {
 			style.Error("%v", err)

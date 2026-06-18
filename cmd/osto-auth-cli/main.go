@@ -81,6 +81,7 @@ func main() {
 	preLogin.Register(commands.NewRegisterCommand(rl, authService))
 	preLogin.Register(commands.NewLoginCommand(rl, authService))
 	preLogin.Register(commands.NewExitCommand())
+	preLogin.Register(commands.NewClearCommand())
 	preLogin.Register(commands.NewHelpCommand(preLogin.All))
 
 	postLogin := repl.NewRegistry()
@@ -89,6 +90,7 @@ func main() {
 	postLogin.Register(commands.NewDisable2FACommand(rl, authGuard, enrollmentService))
 	postLogin.Register(commands.NewLogoutCommand(sessionService))
 	postLogin.Register(commands.NewExitCommand())
+	postLogin.Register(commands.NewClearCommand())
 	postLogin.Register(commands.NewHelpCommand(postLogin.All))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -123,6 +125,9 @@ func main() {
 	fmt.Println("│         Secure REPL-based Identity Manager       │")
 	fmt.Println("│                                                  │")
 	fmt.Println("└──────────────────────────────────────────────────┘")
+	fmt.Println()
+	fmt.Println("Type 'help' to know more about commands.")
+	fmt.Println()
 
 	r := repl.NewREPL(appState, preLogin, postLogin, rl)
 	

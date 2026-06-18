@@ -16,7 +16,7 @@ func NewHelpCommand(getCommands func() []*Command) *Command {
 			if len(args) == 0 {
 				fmt.Println("Available commands:")
 				for _, cmd := range cmds {
-					fmt.Printf("  %-15s - %s\n", cmd.Usage, cmd.Help)
+					fmt.Printf("  %-15s - %s\n", cmd.Name, cmd.Help)
 				}
 				return nil
 			}
