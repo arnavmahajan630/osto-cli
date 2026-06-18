@@ -3,3 +3,4 @@ context.md
 osto.db
 /osto-auth-cli
 test.db
+.env
