@@ -1,12 +1,20 @@
 package validation
 
 import (
-	"errors"
 	"regexp"
 	"time"
 	"unicode"
 	"unicode/utf8"
 )
+
+// ValidationError represents a user-facing validation failure.
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return e.Message
+}
 
 var (
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,32}$`)
@@ -16,7 +24,7 @@ var (
 // and consists only of alphanumeric characters and underscores.
 func Username(s string) error {
 	if !usernameRegex.MatchString(s) {
-		return errors.New("username must be 3-32 characters long and contain only letters, numbers, and underscores")
+		return &ValidationError{Message: "Username must be 3-32 characters long and contain only letters, numbers, and underscores."}
 	}
 	return nil
 }
@@ -25,10 +33,10 @@ func Username(s string) error {
 // does not exceed 72 bytes (bcrypt limitation), and contains at least one letter and one digit.
 func Password(s string) error {
 	if len(s) > 72 {
-		return errors.New("password cannot exceed 72 bytes")
+		return &ValidationError{Message: "Password cannot exceed 72 bytes."}
 	}
 	if utf8.RuneCountInString(s) < 8 {
-		return errors.New("password must be at least 8 characters long")
+		return &ValidationError{Message: "Password must be at least 8 characters long."}
 	}
 
 	hasLetter := false
@@ -44,10 +52,10 @@ func Password(s string) error {
 	}
 
 	if !hasLetter {
-		return errors.New("password must contain at least one letter")
+		return &ValidationError{Message: "Password must contain at least one letter."}
 	}
 	if !hasDigit {
-		return errors.New("password must contain at least one digit")
+		return &ValidationError{Message: "Password must contain at least one digit."}
 	}
 
 	return nil
@@ -60,7 +68,8 @@ func Date(s string) error {
 	}
 	// "2006-01-02" is the reference layout for YYYY-MM-DD in Go
 	if _, err := time.Parse("2006-01-02", s); err != nil {
-		return errors.New("date must be in YYYY-MM-DD format")
+		return &ValidationError{Message: "Date must be in YYYY-MM-DD format."}
 	}
 	return nil
 }
+

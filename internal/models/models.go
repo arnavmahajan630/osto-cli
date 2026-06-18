@@ -6,7 +6,7 @@ type User struct {
 	ID             int64
 	Username       string
 	PasswordHash   string
-	Name           string
+	Name           *string
 	BirthDate      *string
 	CreatedAt      time.Time
 	LastLoginAt    *time.Time

@@ -14,12 +14,14 @@ import (
 type REPL struct {
 	state    *state.AppState
 	registry *Registry
+	rl       *readline.Instance
 }
 
-func NewREPL(s *state.AppState, r *Registry) *REPL {
+func NewREPL(s *state.AppState, r *Registry, rl *readline.Instance) *REPL {
 	return &REPL{
 		state:    s,
 		registry: r,
+		rl:       rl,
 	}
 }
 
@@ -30,21 +32,10 @@ func (r *REPL) Run() error {
 	}
 
 	completer := readline.NewPrefixCompleter(completerItems...)
-
-	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          "osto> ",
-		HistoryFile:     "/tmp/osto_history",
-		AutoComplete:    completer,
-		InterruptPrompt: "^C",
-		EOFPrompt:       "exit",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to initialize readline: %w", err)
-	}
-	defer rl.Close()
+	r.rl.Config.AutoComplete = completer
 
 	for {
-		line, err := rl.Readline()
+		line, err := r.rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
 				continue
