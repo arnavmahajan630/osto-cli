@@ -72,7 +72,7 @@ func main() {
 	
 	sessionService := session.NewSessionService(sessionRepo, cfg)
 	totpService := totp.NewTOTPService()
-	authService := auth.NewAuthService(userRepo, sessionService, totpService, cfg.AppEncryptionKey)
+	authService := auth.NewAuthService(userRepo, sessionService, totpService, cfg.AppEncryptionKey, cfg)
 	authGuard := session.NewAuthGuard(sessionRepo, userRepo)
 	
 	enrollmentService := totp.NewEnrollmentService(userRepo, sessionService, totpService, cfg.AppEncryptionKey)

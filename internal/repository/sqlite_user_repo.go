@@ -90,17 +90,30 @@ func (r *SQLiteUserRepository) ExistsByUsername(ctx context.Context, username st
 func (r *SQLiteUserRepository) RecordLoginSuccess(ctx context.Context, id int64, at time.Time) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE users 
-		SET last_login_at = ?, failed_attempts = 0 
+		SET last_login_at = ?, failed_attempts = 0, locked_until = NULL
 		WHERE id = ?
 	`, at, id)
 	return err
 }
 
 func (r *SQLiteUserRepository) RecordLoginFailure(ctx context.Context, userID int64, failedAttempts int, lockedUntil *time.Time) error {
-	return errors.New("not implemented")
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE users
+		SET failed_attempts = ?, locked_until = ?
+		WHERE id = ?
+	`, failedAttempts, lockedUntil, userID)
+	return err
 }
 
 func (r *SQLiteUserRepository) SetMFA(ctx context.Context, userID int64, enabled bool, encSecret *string) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = ?, mfa_secret_enc = ? WHERE id = ?`, enabled, encSecret, userID)
+	return err
+}
+
+func (r *SQLiteUserRepository) RecordLoginAttempt(ctx context.Context, username string, succeeded bool, reason string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO login_attempts (username, succeeded, reason)
+		VALUES (?, ?, ?)
+	`, username, succeeded, reason)
 	return err
 }

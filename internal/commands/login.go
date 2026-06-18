@@ -39,7 +39,10 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 
 			result, err := authService.Login(context.Background(), username, password)
 			if err != nil {
-				if errors.Is(err, auth.ErrInvalidCredentials) {
+				var lockedErr *auth.ErrorAccountLocked
+				if errors.As(err, &lockedErr) {
+					fmt.Printf("[ERROR] Account locked until %s\n", lockedErr.Until.Format("15:04"))
+				} else if errors.Is(err, auth.ErrInvalidCredentials) {
 					fmt.Println("[ERROR] Invalid credentials.")
 				} else {
 					fmt.Printf("[ERROR] Login failed: %v\n", err)
@@ -58,7 +61,10 @@ func NewLoginCommand(rl *readline.Instance, authService auth.AuthService) *Comma
 
 				token, err := authService.VerifyTOTPAndCreateSession(context.Background(), result.User.ID, code)
 				if err != nil {
-					if errors.Is(err, totp.ErrInvalidTOTP) {
+					var lockedErr *auth.ErrorAccountLocked
+					if errors.As(err, &lockedErr) {
+						fmt.Printf("[ERROR] Account locked until %s\n", lockedErr.Until.Format("15:04"))
+					} else if errors.Is(err, totp.ErrInvalidTOTP) {
 						fmt.Println("[ERROR] Invalid TOTP code.")
 					} else {
 						fmt.Printf("[ERROR] TOTP verification failed: %v\n", err)

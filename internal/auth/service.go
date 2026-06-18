@@ -6,6 +6,7 @@ import (
 
 	"time"
 
+	"osto-auth-cli/internal/config"
 	"osto-auth-cli/internal/models"
 	"osto-auth-cli/internal/repository"
 	"osto-auth-cli/internal/secure"
@@ -44,6 +45,7 @@ type DefaultAuthService struct {
 	sessionService   session.SessionService
 	totpService      totp.TOTPService
 	appEncryptionKey []byte
+	cfg              *config.Config
 }
 
 // NewAuthService creates a new DefaultAuthService.
@@ -52,12 +54,14 @@ func NewAuthService(
 	sessionService session.SessionService,
 	totpService totp.TOTPService,
 	appEncryptionKey []byte,
+	cfg *config.Config,
 ) *DefaultAuthService {
 	return &DefaultAuthService{
 		repo:             repo,
 		sessionService:   sessionService,
 		totpService:      totpService,
 		appEncryptionKey: appEncryptionKey,
+		cfg:              cfg,
 	}
 }
 
@@ -114,18 +118,36 @@ func (s *DefaultAuthService) Register(ctx context.Context, input RegisterInput) 
 func (s *DefaultAuthService) Login(ctx context.Context, username, password string) (*LoginResult, error) {
 	user, err := s.repo.GetByUsername(ctx, username)
 	if err != nil {
-		// Do not distinguish between non-existent user and bad password
 		if errors.Is(err, repository.ErrNotFound) {
+			_ = s.repo.RecordLoginAttempt(ctx, username, false, "user not found")
 			return nil, ErrInvalidCredentials
 		}
 		return nil, err
 	}
 
+	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
+		_ = s.repo.RecordLoginAttempt(ctx, username, false, "account locked")
+		return nil, &ErrorAccountLocked{Until: *user.LockedUntil}
+	}
+
 	if !secure.VerifyPassword(user.PasswordHash, password) {
+		newFailed := user.FailedAttempts + 1
+		var lockedUntil *time.Time
+		if newFailed >= s.cfg.LockoutThreshold {
+			lu := time.Now().Add(s.cfg.LockoutDuration)
+			lockedUntil = &lu
+		}
+		_ = s.repo.RecordLoginFailure(ctx, user.ID, newFailed, lockedUntil)
+		_ = s.repo.RecordLoginAttempt(ctx, username, false, "invalid password")
+
+		if lockedUntil != nil {
+			return nil, &ErrorAccountLocked{Until: *lockedUntil}
+		}
 		return nil, ErrInvalidCredentials
 	}
 
 	if user.MFAEnabled {
+		_ = s.repo.RecordLoginAttempt(ctx, username, true, "password ok, awaiting TOTP")
 		return &LoginResult{
 			User:         user,
 			RequiresTOTP: true,
@@ -136,6 +158,7 @@ func (s *DefaultAuthService) Login(ctx context.Context, username, password strin
 	if err := s.repo.RecordLoginSuccess(ctx, user.ID, time.Now()); err != nil {
 		return nil, err
 	}
+	_ = s.repo.RecordLoginAttempt(ctx, username, true, "login success")
 
 	rawToken, err := s.sessionService.Create(ctx, user.ID)
 	if err != nil {
@@ -163,7 +186,13 @@ func (s *DefaultAuthService) VerifyTOTPAndCreateSession(ctx context.Context, use
 		return "", err
 	}
 
+	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
+		_ = s.repo.RecordLoginAttempt(ctx, user.Username, false, "account locked during TOTP")
+		return "", &ErrorAccountLocked{Until: *user.LockedUntil}
+	}
+
 	if user.MFASecretEnc == nil {
+		_ = s.repo.RecordLoginAttempt(ctx, user.Username, false, "MFA secret missing")
 		return "", totp.ErrInvalidTOTP
 	}
 
@@ -173,12 +202,25 @@ func (s *DefaultAuthService) VerifyTOTPAndCreateSession(ctx context.Context, use
 	}
 
 	if !s.totpService.Validate(string(plaintext), code) {
+		newFailed := user.FailedAttempts + 1
+		var lockedUntil *time.Time
+		if newFailed >= s.cfg.LockoutThreshold {
+			lu := time.Now().Add(s.cfg.LockoutDuration)
+			lockedUntil = &lu
+		}
+		_ = s.repo.RecordLoginFailure(ctx, user.ID, newFailed, lockedUntil)
+		_ = s.repo.RecordLoginAttempt(ctx, user.Username, false, "invalid TOTP")
+
+		if lockedUntil != nil {
+			return "", &ErrorAccountLocked{Until: *lockedUntil}
+		}
 		return "", totp.ErrInvalidTOTP
 	}
 
 	if err := s.repo.RecordLoginSuccess(ctx, user.ID, time.Now()); err != nil {
 		return "", err
 	}
+	_ = s.repo.RecordLoginAttempt(ctx, user.Username, true, "login success with TOTP")
 
 	rawToken, err := s.sessionService.Create(ctx, user.ID)
 	if err != nil {

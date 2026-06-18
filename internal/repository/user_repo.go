@@ -16,4 +16,5 @@ type UserRepository interface {
 	RecordLoginSuccess(ctx context.Context, id int64, at time.Time) error
 	RecordLoginFailure(ctx context.Context, userID int64, failedAttempts int, lockedUntil *time.Time) error
 	SetMFA(ctx context.Context, id int64, enabled bool, encSecret *string) error
+	RecordLoginAttempt(ctx context.Context, username string, succeeded bool, reason string) error
 }
