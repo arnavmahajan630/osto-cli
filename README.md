@@ -287,3 +287,36 @@ osto-auth-cli/
 ├── .env.example             # all variables documented with example values
 └── README.md
 ```
+
+## Further Improvements
+ 
+The following are production-grade improvements that were intentionally left out of scope for this implementation, either for simplicity or because they go beyond the assignment's requirements. They represent a natural next step for hardening the system.
+ 
+### Argon2id instead of bcrypt
+ 
+The current implementation uses **bcrypt** for password hashing, which is a well-established and secure choice. However, **Argon2id** is the more modern recommendation — it won the Password Hashing Competition (2015) and is explicitly preferred by OWASP's current guidelines.
+ 
+The practical advantage over bcrypt is that Argon2id is configurable across three dimensions: time cost (iterations), memory cost (KB of RAM used during hashing), and parallelism (threads). This makes it resistant to both GPU-based brute force (via the memory cost) and side-channel timing attacks (via the time cost), whereas bcrypt's hardness is controlled only by a single cost factor.
+ 
+Switching would require: replacing `golang.org/x/crypto/bcrypt` with `golang.org/x/crypto/argon2`, storing the Argon2id parameters alongside the hash (time, memory, threads, salt) as a structured string in `password_hash`, and writing a migration path for existing bcrypt hashes — e.g. re-hash on next successful login transparently, without requiring a password reset.
+ 
+### TOTP Backup Codes
+ 
+If a user loses their authenticator app, there is currently no recovery path — the account becomes permanently inaccessible. Standard implementations (GitHub, Google) pair TOTP enrollment with a set of one-time backup codes the user saves offline. Each code is single-use and stored as individual hashed rows in a new `mfa_backup_codes` table. A `use-backup-code` command (or a branch in the login flow when the user answers "I don't have my device") consumes one and marks it used. The codes are generated and displayed only once, at enrollment time, alongside the QR code.
+ 
+### Encryption Key Rotation
+ 
+The `APP_ENCRYPTION_KEY` is currently a single static value. If it needs to be rotated (e.g. after a suspected infrastructure compromise), there is no in-place upgrade path — all stored `mfa_secret_enc` values would become undecryptable with the new key. A proper key rotation command (`rotate-key --old-key ... --new-key ...`) would decrypt every stored secret with the old key and re-encrypt it with the new one in a single transaction, making rotation a zero-downtime admin operation.
+ 
+### Session Token Rotation on Each Request
+ 
+Currently a session token is issued once at login and remains valid until it expires or is revoked. A more defensive pattern is **sliding-window rotation**: on each authenticated command, the old token is invalidated and a new one is issued. This limits the blast radius of a token being observed (e.g. from a process list or memory dump) — the observation window is at most one command cycle rather than the full session lifetime.
+ 
+### Structured Audit Log
+ 
+The `login_attempts` table provides a basic record of authentication events. A more complete audit log would record all post-login actions (2FA changes, session revocations) with timestamps and reasons, surfaced via a dedicated `audit-log` command available to the authenticated user. For multi-user deployments this is the minimum expectation for accountability.
+ 
+### `change-password` Command
+ 
+The current implementation has no way to change a password without deleting and re-registering the account. A `change-password` command would prompt for the current password (to re-authenticate the action in-session), then a new password twice, and re-hash. If TOTP is enabled, it should also require the current TOTP code before accepting the change — following the same "verify before mutating" pattern used in `enable-2fa` and `disable-2fa`.
+
