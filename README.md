@@ -1,94 +1,289 @@
-# Osto Auth CLI
+# osto-auth-cli
 
-An interactive, REPL-style CLI for user registration, login, optional TOTP 2FA, and session management. It is backed by an embedded SQLite database and is fully containerized using Docker Compose.
+A containerized, interactive REPL-style authentication CLI written in Go. Supports user registration, password-based login, optional TOTP two-factor authentication (Google Authenticator compatible), and session management — all backed by an embedded SQLite database and fully containerized with Docker Compose.
+
+---
+
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [Security Properties](#security-properties)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+- [Configuration Reference](#configuration-reference)
+- [Commands](#commands)
+- [Demo Script](#demo-script)
+- [Database Schema](#database-schema)
+- [Project Structure](#project-structure)
+
+---
+
+## How It Works
+
+When you run the container, you drop directly into a REPL loop — a single persistent process with a prompt you type commands into, similar to `psql`, `redis-cli`, or a Python shell. There is no HTTP server, no REST API, and no separate client binary. The prompt itself changes to reflect your state:
+
+```
+osto>                   ← not logged in
+osto(arnav)>            ← logged in as "arnav"
+```
+
+The available command set also changes dynamically: pre-login commands (`register`, `login`, `help`, `exit`) are replaced by post-login commands (`whoami`, `enable-2fa`, `disable-2fa`, `logout`, `help`, `exit`) the moment you authenticate — and swapped back the moment you log out or your session expires.
+
+---
+
+## Security Properties
+
+| Property | Implementation |
+|---|---|
+| Password storage | bcrypt (no plaintext ever written to disk) |
+| Session tokens | 32 random bytes (crypto/rand), only their SHA-256 hash is stored |
+| TOTP secrets | AES-256-GCM encrypted at rest; raw secret never persisted |
+| Credential errors | Identical message for "no such user" and "wrong password" — no enumeration |
+| Account lockout | Configurable threshold and duration; applies to both password and TOTP failures |
+| Input masking | Passwords and TOTP codes are masked at the prompt and excluded from session history |
+| Raw error leakage | Internal errors (e.g. crypto failures) are logged to stderr only; users always see a deliberate, clean message |
+
+---
 
 ## Prerequisites
 
-- **Docker** and **Docker Compose** installed on your system.
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed and running.
 
-## Environment Setup
+That's it. No Go toolchain required — the build happens inside Docker.
 
-1. Copy the provided `.env.example` file to create your local `.env` configuration.
-   ```bash
-   cp .env.example .env
-   ```
-2. Generate a valid 32-byte (256-bit) encryption key for AES-GCM encryption and add it to your `.env` file. You can easily generate one using OpenSSL:
-   ```bash
-   openssl rand -base64 32
-   ```
-   *Make sure `APP_ENCRYPTION_KEY` is set to this exact string in the `.env` file.*
+---
 
-## Running the Application
+## Getting Started
 
-This CLI is fully containerized. A `migrate` container runs sequentially before the main `app` container to ensure your SQLite database has the proper schema. 
+### 1. Clone the repository
 
-Since the application requires an interactive terminal (REPL), you must run it using Docker Compose with standard input attached.
+```bash
+git clone https://github.com/<your-username>/osto-auth-cli.git
+cd osto-auth-cli
+```
 
-### 1. Build and Run the CLI
-Use the following command to completely delete any old anonymous containers, apply database migrations, and boot directly into the REPL loop:
+### 2. Create your environment file
+
+```bash
+cp .env.example .env
+```
+
+### 3. Generate a 32-byte encryption key
+
+The application uses AES-256-GCM to encrypt stored TOTP secrets. It requires a base64-encoded 32-byte key, which you can generate with:
+
+```bash
+openssl rand -base64 32
+```
+
+Open `.env` and paste the output as the value of `APP_ENCRYPTION_KEY`. The app will refuse to start if this value is missing or decodes to anything other than exactly 32 bytes.
+
+### 4. Run the CLI
 
 ```bash
 docker compose run --rm app
 ```
 
-*(Note: If you want to start completely fresh with a new database, you can run `docker compose down -v` to delete the local `osto_data` persistent volume before running the above command).*
+This command:
+1. Builds the Go binary inside a multi-stage Docker build (no local Go toolchain needed).
+2. Runs the `migrate` container first, which applies the database schema to the persistent volume and exits.
+3. Once migrations succeed, starts the `app` container with stdin/tty attached, dropping you into the REPL.
 
-## Step-by-Step Demo Script
+> **Starting fresh:** to wipe all data and start from a clean database, run `docker compose down -v` before the command above. This deletes the named volume holding the SQLite file.
 
-You can follow this exact sequence to comprehensively test the features and security properties of the CLI.
+---
 
-**1. Register an Account**
-```text
+## Configuration Reference
+
+All configuration is read from environment variables at startup. Required variables cause a clean, logged failure if missing — the REPL never starts with invalid config.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `DB_PATH` | yes | — | Path to the SQLite file inside the container. Set to `/data/osto.db` in the provided Compose file. |
+| `SESSION_TIME` | yes | — | How long a session stays valid after the last activity. Uses Go duration syntax: `15m`, `1h`, `30s`. |
+| `APP_ENCRYPTION_KEY` | yes | — | Base64-encoded AES-256 key (must decode to exactly 32 bytes). Never logged, even partially. |
+| `LOG_LEVEL` | no | `info` | Diagnostic log verbosity to stderr. One of `debug`, `info`, `warn`, `error`. |
+| `CLEANUP_INTERVAL` | no | `1m` | How often the background goroutine sweeps and removes expired sessions. |
+| `LOCKOUT_THRESHOLD` | no | `5` | Number of failed credential attempts (password or TOTP, combined) before an account is locked. |
+| `LOCKOUT_DURATION` | no | `15m` | How long an account stays locked after hitting the threshold. |
+
+---
+
+## Commands
+
+### Before login
+
+| Command | Description |
+|---|---|
+| `register` | Create a new account. Prompts for username, password (masked), password confirmation, name, and an optional birth date. |
+| `login` | Authenticate with username and password. If 2FA is enabled on the account, a TOTP code is requested as a second step. Both the password and TOTP prompts allow up to 3 attempts before giving up gracefully. |
+| `help` | List all available commands. `help <command>` shows detailed usage for that command. |
+| `exit` / `quit` / `q` | Exit the REPL. If a session is active, it is revoked before quitting. |
+
+### After login
+
+| Command | Description |
+|---|---|
+| `whoami` | Display your account details: username, name, registration date, MFA status, last login time, and current session expiry. |
+| `enable-2fa` | Enroll TOTP two-factor authentication. Displays an ASCII QR code and a manual base32 secret fallback. The secret is only saved after you successfully verify a code — a failed verification leaves your account unchanged. Revokes your current session to force a fresh login with 2FA active. |
+| `disable-2fa` | Remove TOTP authentication from your account after verifying your current code. Revokes your current session. |
+| `logout` | Revoke the current session and return to the pre-login prompt. |
+| `help` | Same as above — lists only the commands available in the current auth state. |
+| `exit` / `quit` / `q` | Revokes the session and exits. |
+
+> **Aliases:** `?` is an alias for `help`. Pressing Ctrl+C once prints a reminder; a second Ctrl+C cleanly revokes any active session and exits.
+
+---
+
+## Demo Script
+
+Follow this sequence to exercise every feature end-to-end. All commands are typed at the `osto>` prompt.
+
+**1. Register an account**
+```
 osto> register
 Username: reviewer
-Password: Password123
+Password: ••••••••••••
+Confirm Password: ••••••••••••
 Name: Reviewer Name
-Birth Date (YYYY-MM-DD) [Optional]: 2026-06-18
-[OK] Registration successful
+Birth Date (YYYY-MM-DD) [optional]: 2026-06-18
+[OK] Registration successful. You can now log in.
 ```
 
-**2. Enable 2FA**
-```text
-osto> enable-2fa
+**2. Log in (no 2FA yet)**
 ```
-*The terminal will render an ASCII QR code. Scan it with a TOTP app (like Google Authenticator or Authy).*
-```text
-Enter code: <type the 6-digit code from your app>
-[OK] 2FA enabled successfully
-```
-
-**3. Logout**
-```text
-osto> logout
-[OK] Logged out successfully
-```
-
-**4. Login (Now requiring 2FA)**
-```text
 osto> login
 Username: reviewer
-Password: Password123
-[INFO] 2FA is required for this account.
-Enter 2FA Code: <type the current 6-digit code>
-[OK] Login successful
+Password: ••••••••••••
+[OK] Welcome back, Reviewer Name.
 ```
 
-**5. Check Authenticated Identity**
-```text
-osto> whoami
-[OK] Current User: reviewer (Name: Reviewer Name)
+**3. Check your identity**
+```
+osto(reviewer)> whoami
+┌─────────────────────────────────────┐
+│  Username        reviewer           │
+│  Name            Reviewer Name      │
+│  Registered      2026-06-18         │
+│  MFA             Disabled           │
+│  Last Login      just now           │
+│  Session Expires in 14m 58s         │
+└─────────────────────────────────────┘
+```
+
+**4. Enable 2FA**
+```
+osto(reviewer)> enable-2fa
+[INFO] Scan the QR code below with Google Authenticator or Authy.
+[INFO] Can't scan? Enter this code manually: JBSWY3DPEHPK3PXP
+
+  ██████████████  ██  ██  ██████████████
+  ...
+  (ASCII QR code)
+  ...
+
+Enter the 6-digit code from your app to confirm setup: ••••••
+[OK] 2FA enabled successfully. Please log in again.
+```
+
+**5. Log back in — now with 2FA**
+```
+osto> login
+Username: reviewer
+Password: ••••••••••••
+[INFO] This account requires two-factor authentication.
+Enter 2FA code: ••••••
+[OK] Welcome back, Reviewer Name.
 ```
 
 **6. Disable 2FA**
-```text
-osto> disable-2fa
-Enter code: <type the current 6-digit code>
-[OK] 2FA disabled successfully
+```
+osto(reviewer)> disable-2fa
+Enter your current 2FA code to confirm: ••••••
+[OK] 2FA disabled successfully. Please log in again.
 ```
 
-**7. Logout & Exit**
-```text
-osto> logout
-[OK] Logged out successfully
+**7. Log in again (no 2FA prompt this time) then exit**
+```
+osto> login
+Username: reviewer
+Password: ••••••••••••
+[OK] Welcome back, Reviewer Name.
+
+osto(reviewer)> logout
+[OK] Logged out successfully.
+
 osto> exit
+```
+
+---
+
+## Database Schema
+
+The SQLite database uses three tables, applied automatically by the migration runner on first start.
+
+```sql
+-- User accounts
+CREATE TABLE users (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    username        TEXT    NOT NULL UNIQUE,
+    password_hash   TEXT    NOT NULL,          -- bcrypt
+    name            TEXT,
+    birth_date      TEXT,                      -- YYYY-MM-DD, nullable
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at   DATETIME,
+    mfa_enabled     BOOLEAN  NOT NULL DEFAULT 0,
+    mfa_secret_enc  TEXT,                      -- AES-256-GCM ciphertext, base64(nonce||ct), nullable
+    failed_attempts INTEGER  NOT NULL DEFAULT 0,
+    locked_until    DATETIME                   -- NULL = not locked
+);
+
+-- Active and historical sessions
+CREATE TABLE sessions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash      TEXT     NOT NULL UNIQUE,  -- SHA-256 of the raw token; raw token never stored
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at      DATETIME NOT NULL,
+    last_active_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at      DATETIME                   -- NULL = still active
+);
+
+-- Login audit trail
+CREATE TABLE login_attempts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    username     TEXT    NOT NULL,
+    succeeded    BOOLEAN NOT NULL,
+    attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reason       TEXT                          -- e.g. 'bad_password', 'bad_totp', 'locked'
+);
+```
+
+---
+
+## Project Structure
+
+```
+osto-auth-cli/
+├── cmd/osto-auth-cli/
+│   └── main.go              # entry point: config → logger → db → services → REPL
+├── internal/
+│   ├── config/              # env loading, fail-fast validation
+│   ├── repl/                # readline loop, dynamic prompt, command dispatch, completer
+│   ├── commands/            # one file per command (register, login, whoami, …)
+│   ├── auth/                # AuthService: register, login, TOTP session creation
+│   ├── session/             # SessionService, AuthGuard
+│   ├── totp/                # secret generation, QR rendering, code validation
+│   ├── secure/              # bcrypt, AES-GCM, session token generation + hashing
+│   ├── validation/          # username, password, date rules — pure, no I/O
+│   ├── repository/          # UserRepository and SessionRepository (SQLite-backed)
+│   ├── models/              # User and Session structs
+│   ├── db/                  # connection setup, embedded migration runner
+│   └── logger/              # slog wrapper, level config
+├── migrations/
+│   └── 0001_init.sql        # full schema, embedded into the binary via go:embed
+├── Dockerfile               # multi-stage: Go build → minimal runtime, no cgo
+├── docker-compose.yml       # migrate service (one-shot) + app service (interactive tty)
+├── .env.example             # all variables documented with example values
+└── README.md
 ```
