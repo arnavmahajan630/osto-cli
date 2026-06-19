@@ -103,8 +103,8 @@ All configuration is read from environment variables at startup. Required variab
 | `SESSION_TIME` | yes | — | How long a session stays valid after the last activity. Uses Go duration syntax: `15m`, `1h`, `30s`. |
 | `APP_ENCRYPTION_KEY` | yes | — | Base64-encoded AES-256 key (must decode to exactly 32 bytes). Never logged, even partially. |
 | `LOG_LEVEL` | no | `info` | Diagnostic log verbosity to stderr. One of `debug`, `info`, `warn`, `error`. |
-| `CLEANUP_INTERVAL` | no | `1m` | How often the background goroutine sweeps and removes expired sessions. |
-| `LOCKOUT_THRESHOLD` | no | `5` | Number of failed credential attempts (password or TOTP, combined) before an account is locked. |
+| `CLEANUP_INTERVAL` | no | `1h` | How often the background goroutine sweeps and removes expired sessions. |
+| `LOCKOUT_THRESHOLD` | no | `3` | Number of failed credential attempts (password or TOTP, combined) before an account is locked. |
 | `LOCKOUT_DURATION` | no | `15m` | How long an account stays locked after hitting the threshold. |
 
 ---
