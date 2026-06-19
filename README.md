@@ -58,7 +58,7 @@ That's it. No Go toolchain required — the build happens inside Docker.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/arnavmahajan630/osto-auth-cli.git
+git clone https://github.com/arnavmahajan630/osto-cli.git
 cd osto-auth-cli
 ```
 
